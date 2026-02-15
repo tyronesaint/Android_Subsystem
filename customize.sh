@@ -87,31 +87,49 @@ configuration() {
     fi
 }
 
-# OpenWRT 下载函数
+# ========== 核心修复：OpenWRT 下载&解压逻辑 ==========
 download_openwrt() {
     . "$MODPATH/config.conf"
     local OPENWRT_DOWNLOAD_URL=""
     
+    # 选择下载地址（稳定版/开发版）
     if [ "${RURIMA_LXC_OS_VERSION}" = "edge" ]; then
         OPENWRT_DOWNLOAD_URL="${OPENWRT_EDGE_URL}"
     else
         OPENWRT_DOWNLOAD_URL="${OPENWRT_URL}"
     fi
 
-    ui_print "- Downloading OpenWRT ${RURIMA_LXC_OS_VERSION} rootfs..."
+    # 1. 创建容器根目录（关键：直接用 CONTAINER_DIR 作为解压根目录）
     mkdir -p "$CONTAINER_DIR"
-    ./rurima download "${OPENWRT_DOWNLOAD_URL}" "${CONTAINER_DIR}/rootfs.tar.gz"
-    
-    if [[ $? != 0 ]]; then
-        abort "- OpenWRT rootfs download failed! Check network/URL."
+    ui_print "- OpenWRT container dir: $CONTAINER_DIR"
+
+    # 2. 断点续传下载 rootfs（避免重复下载）
+    ui_print "- Downloading OpenWRT ${RURIMA_LXC_OS_VERSION} rootfs..."
+    ui_print "- URL: ${OPENWRT_DOWNLOAD_URL}"
+    if command -v curl >/dev/null 2>&1; then
+        curl -L -C - -o "${CONTAINER_DIR}/rootfs.tar.gz" "${OPENWRT_DOWNLOAD_URL}"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -c -O "${CONTAINER_DIR}/rootfs.tar.gz" "${OPENWRT_DOWNLOAD_URL}"
+    else
+        abort "- No curl/wget found! Cannot download rootfs."
     fi
 
-    ui_print "- Extracting OpenWRT rootfs..."
-    mkdir -p "${CONTAINER_DIR}/rootfs"
-    tar -xf "${CONTAINER_DIR}/rootfs.tar.gz" -C "${CONTAINER_DIR}/rootfs"
-    if [[ $? != 0 ]]; then
-        abort "- OpenWRT rootfs extract failed!"
+    # 3. 校验文件是否下载完成（大小>0）
+    if [ ! -f "${CONTAINER_DIR}/rootfs.tar.gz" ] || [ ! -s "${CONTAINER_DIR}/rootfs.tar.gz" ]; then
+        abort "- OpenWRT rootfs download failed! File is empty or missing."
     fi
+    ui_print "- Download completed! File size: $(du -h ${CONTAINER_DIR}/rootfs.tar.gz | awk '{print $1}')"
+
+    # 4. 解压到容器根目录（核心修复：直接解压到 CONTAINER_DIR，而非 CONTAINER_DIR/rootfs）
+    ui_print "- Extracting OpenWRT rootfs to $CONTAINER_DIR..."
+    tar -xf "${CONTAINER_DIR}/rootfs.tar.gz" -C "${CONTAINER_DIR}" --strip-components=0
+    if [[ $? != 0 ]]; then
+        abort "- OpenWRT rootfs extract failed! Check if the file is corrupted."
+    fi
+
+    # 5. 删除临时压缩包（节省空间）
+    rm -f "${CONTAINER_DIR}/rootfs.tar.gz"
+    ui_print "- Extract completed! Rootfs size: $(du -sh ${CONTAINER_DIR} | awk '{print $1}')"
 }
 
 automatic() {
@@ -140,6 +158,7 @@ automatic() {
     cp -r "$MODPATH/setup/servicectl"/* "$CONTAINER_DIR/usr/local/lib/servicectl/"
     chmod 777 "$CONTAINER_DIR/tmp/setup.sh" "$CONTAINER_DIR/usr/local/lib/servicectl/"*
 
+    # 执行 setup.sh 初始化
     ruri "$CONTAINER_DIR" /bin/sh /tmp/setup.sh "$RURIMA_LXC_OS" "$PASSWORD" "$PORT"
     ruri -U "$CONTAINER_DIR"
 
