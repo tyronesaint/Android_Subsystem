@@ -89,14 +89,55 @@ configuration() {
     fi
 }
 
+# ========== 新增 OpenWRT 下载函数 ==========
+download_openwrt() {
+    . "$MODPATH/config.conf"
+    local OPENWRT_DOWNLOAD_URL=""
+    
+    # 判断版本，选择稳定版/开发版地址
+    if [ "${RURIMA_LXC_OS_VERSION}" = "edge" ]; then
+        OPENWRT_DOWNLOAD_URL="${OPENWRT_EDGE_URL}"
+    else
+        OPENWRT_DOWNLOAD_URL="${OPENWRT_URL}"
+    fi
+
+    ui_print "- Downloading OpenWRT ${RURIMA_LXC_OS_VERSION} rootfs..."
+    ui_print "- Download URL: ${OPENWRT_DOWNLOAD_URL}"
+    
+    # 创建容器目录
+    mkdir -p "$CONTAINER_DIR"
+    # 使用 rurima 下载 OpenWRT rootfs
+    ./rurima download "${OPENWRT_DOWNLOAD_URL}" "${CONTAINER_DIR}/rootfs.tar.gz"
+    
+    if [[ $? != 0 ]]; then
+        abort "- OpenWRT rootfs download failed! Please check network or URL."
+    fi
+
+    # 解压 rootfs
+    ui_print "- Extracting OpenWRT rootfs..."
+    mkdir -p "${CONTAINER_DIR}/rootfs"
+    tar -xf "${CONTAINER_DIR}/rootfs.tar.gz" -C "${CONTAINER_DIR}/rootfs"
+    if [[ $? != 0 ]]; then
+        abort "- OpenWRT rootfs extract failed!"
+    fi
+    ui_print "- OpenWRT rootfs extract completed!"
+}
+
 automatic() {
     ui_print "- A network connection is required to download the root filesystem. Please connect to WiFi before installation whenever possible"
-    ui_print "- Downloading the root filesystem using the source ${RURIMA_LXC_MIRROR}..."
 
-    rurima lxc pull -n -m ${RURIMA_LXC_MIRROR} -o ${RURIMA_LXC_OS} -v ${RURIMA_LXC_OS_VERSION} -s "$CONTAINER_DIR"
-    if [[ $? != 0 ]]; then
-        ui_print "- Download failed. Attempting to download the root filesystem using the fallback source ${RURIMA_LXC_MIRROR_FALLBACK}..."
-        rurima lxc pull -n -m ${RURIMA_LXC_MIRROR_FALLBACK} -o ${RURIMA_LXC_OS} -v ${RURIMA_LXC_OS_VERSION} -s "$CONTAINER_DIR"
+    # ========== 新增 OpenWRT 分支判断 ==========
+    if [ "${RURIMA_LXC_OS}" = "openwrt" ]; then
+        # 下载 OpenWRT rootfs（非 LXC 镜像）
+        download_openwrt
+    else
+        # 原版 LXC 镜像下载逻辑
+        ui_print "- Downloading the root filesystem using the source ${RURIMA_LXC_MIRROR}..."
+        rurima lxc pull -n -m ${RURIMA_LXC_MIRROR} -o ${RURIMA_LXC_OS} -v ${RURIMA_LXC_OS_VERSION} -s "$CONTAINER_DIR"
+        if [[ $? != 0 ]]; then
+            ui_print "- Download failed. Attempting to download the root filesystem using the fallback source ${RURIMA_LXC_MIRROR_FALLBACK}..."
+            rurima lxc pull -n -m ${RURIMA_LXC_MIRROR_FALLBACK} -o ${RURIMA_LXC_OS} -v ${RURIMA_LXC_OS_VERSION} -s "$CONTAINER_DIR"
+        fi
     fi
 
     ui_print "- Starting the chroot environment to perform automated installation..."
