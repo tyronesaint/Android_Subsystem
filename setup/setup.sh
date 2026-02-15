@@ -1,7 +1,8 @@
 LXC_OS=$1
 PASSWORD=$2
 PORT=$3
-OS_LIST="alpine archlinux centos debian fedora kali ubuntu"
+# ========== 新增 openwrt 到发行版列表 ==========
+OS_LIST="alpine archlinux centos debian fedora kali ubuntu openwrt"
 
 configure_dns_host() {
     if [ -L /etc/resolv.conf ]; then
@@ -240,6 +241,43 @@ setup_kali() {
     # apt install kali-linux-all
 }
 
+# ========== 新增 OpenWRT 初始化函数 ==========
+setup_openwrt() {
+    # 定义 OpenWRT 版本（23.05.3 适配 armsr/armv8）
+    local OPENWRT_VERSION="23.05.3"
+    
+    # 1. 修复 OpenWRT 基础目录
+    mkdir -p /var/run/sshd /var/log /etc/ssh /etc/opkg /root/.ssh
+    chmod 700 /root/.ssh
+
+    # 2. 配置 OpenWRT opkg 源（适配 23.05+ armsr/armv8）
+    cat > /etc/opkg/distfeeds.conf << EOF
+src/gz openwrt_core https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/armsr/armv8/packages
+src/gz openwrt_base https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/packages/aarch64_generic/base
+src/gz openwrt_luci https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/packages/aarch64_generic/luci
+src/gz openwrt_packages https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/packages/aarch64_generic/packages
+EOF
+
+    # 3. 安装 SSH 服务（OpenWRT 默认无 sshd）
+    opkg update
+    opkg install --force-depends openssh-server openssh-client
+
+    # 4. 生成 SSH 密钥（修复启动报错）
+    ssh-keygen -A
+
+    # 5. 配置 OpenWRT 网络为 DHCP（适配容器环境）
+    uci set network.lan.proto=dhcp
+    uci delete network.lan.ipaddr
+    uci delete network.lan.netmask
+    uci delete network.lan.gateway
+    uci delete network.lan.dns
+    uci commit network
+    /etc/init.d/network restart
+
+    # 6. 配置 SSH 自启
+    /etc/init.d/sshd enable
+}
+
 configure_ssh() {
     local port=${PORT:-22}
 
@@ -288,6 +326,7 @@ main() {
     add_user_to_groups
     echo "root:${PASSWORD:-123456}" | chpasswd
 
+    # ========== 新增 openwrt 分支调用 ==========
     case "$LXC_OS" in
     archlinux) setup_archlinux ;;
     alpine) setup_alpine ;;
@@ -295,6 +334,7 @@ main() {
     debian|ubuntu) setup_debian ;;
     fedora) setup_fedora ;;
     kali) setup_kali ;;
+    openwrt) setup_openwrt ;;  # OpenWRT 分支
     esac
 
     configure_ssh
