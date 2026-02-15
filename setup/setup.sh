@@ -1,7 +1,7 @@
 LXC_OS=$1
 PASSWORD=$2
 PORT=$3
-# ========== 新增 openwrt 到发行版列表 ==========
+# 新增 openwrt 到支持列表
 OS_LIST="alpine archlinux centos debian fedora kali ubuntu openwrt"
 
 configure_dns_host() {
@@ -183,10 +183,6 @@ Endofpacman2
     ln -sf /usr/local/lib/servicectl/servicectl /usr/bin/servicectl
 
     ssh-keygen -A
-
-    # When packaging a software package (such as an AUR package) using `makepkg`, you may encounter an issue where the system cannot enter the fakeroot environment because it is not started by systemd and does not have SYSV pipes and message queues
-    # To resolve this issue, download the appropriate `fakeroot-tcp` for your system =>>https://pkgs.org/download/fakeroot-tcp
-    # pacman -S --overwrite '*' yay     # It is necessary to compile `archlinuxcn-keyring` by yourself
 }
 
 setup_alpine() {
@@ -236,21 +232,18 @@ setup_kali() {
     apt update
     apt install -y openssh-server
     apt autoclean
-
-    # apt install kali-tools-top10
-    # apt install kali-linux-all
 }
 
-# ========== 新增 OpenWRT 初始化函数 ==========
+# ========== OpenWRT 专属初始化函数 ==========
 setup_openwrt() {
-    # 定义 OpenWRT 版本（23.05.3 适配 armsr/armv8）
+    # OpenWRT 23.05.3 (armsr/armv8) 初始化
     local OPENWRT_VERSION="23.05.3"
     
-    # 1. 修复 OpenWRT 基础目录
+    # 1. 修复基础目录
     mkdir -p /var/run/sshd /var/log /etc/ssh /etc/opkg /root/.ssh
     chmod 700 /root/.ssh
 
-    # 2. 配置 OpenWRT opkg 源（适配 23.05+ armsr/armv8）
+    # 2. 配置 opkg 源（适配 armsr/armv8）
     cat > /etc/opkg/distfeeds.conf << EOF
 src/gz openwrt_core https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/targets/armsr/armv8/packages
 src/gz openwrt_base https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/packages/aarch64_generic/base
@@ -258,14 +251,12 @@ src/gz openwrt_luci https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/pa
 src/gz openwrt_packages https://downloads.openwrt.org/releases/${OPENWRT_VERSION}/packages/aarch64_generic/packages
 EOF
 
-    # 3. 安装 SSH 服务（OpenWRT 默认无 sshd）
+    # 3. 安装 SSH 服务
     opkg update
     opkg install --force-depends openssh-server openssh-client
-
-    # 4. 生成 SSH 密钥（修复启动报错）
     ssh-keygen -A
 
-    # 5. 配置 OpenWRT 网络为 DHCP（适配容器环境）
+    # 4. 配置网络为 DHCP（适配容器）
     uci set network.lan.proto=dhcp
     uci delete network.lan.ipaddr
     uci delete network.lan.netmask
@@ -274,7 +265,7 @@ EOF
     uci commit network
     /etc/init.d/network restart
 
-    # 6. 配置 SSH 自启
+    # 5. 配置 SSH 自启
     /etc/init.d/sshd enable
 }
 
@@ -326,7 +317,7 @@ main() {
     add_user_to_groups
     echo "root:${PASSWORD:-123456}" | chpasswd
 
-    # ========== 新增 openwrt 分支调用 ==========
+    # 调用对应发行版的初始化函数
     case "$LXC_OS" in
     archlinux) setup_archlinux ;;
     alpine) setup_alpine ;;
