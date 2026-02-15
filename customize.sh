@@ -32,8 +32,6 @@ link_busybox() {
 
     if [ -n "$busybox_file" ]; then
         mkdir -p "$MODPATH/system/xbin"
-        # "$busybox_file" --install -s "$MODPATH/system/xbin"
-        # This method creates links pointing to all commands of busybox, so it is not recommended. The following is an alternative approach for creating symbolic links pointing to the busybox file for specific commands
         for cmd in fuser; do
             ln -sf "$busybox_file" "$MODPATH/system/xbin/$cmd"
         done
@@ -85,16 +83,15 @@ configuration() {
             mv "$CONTAINER_DIR.old" "$CONTAINER_DIR.old.$version"
         fi
         mv -f "$CONTAINER_DIR" "$CONTAINER_DIR.old"
-        ui_print "- Shut down the container and back up the relevant directories and files to the ${CONTAINER_DIR}.old"
+        ui_print "- Shut down the container and back up to ${CONTAINER_DIR}.old"
     fi
 }
 
-# ========== 新增 OpenWRT 下载函数 ==========
+# OpenWRT 下载函数
 download_openwrt() {
     . "$MODPATH/config.conf"
     local OPENWRT_DOWNLOAD_URL=""
     
-    # 判断版本，选择稳定版/开发版地址
     if [ "${RURIMA_LXC_OS_VERSION}" = "edge" ]; then
         OPENWRT_DOWNLOAD_URL="${OPENWRT_EDGE_URL}"
     else
@@ -102,59 +99,52 @@ download_openwrt() {
     fi
 
     ui_print "- Downloading OpenWRT ${RURIMA_LXC_OS_VERSION} rootfs..."
-    ui_print "- Download URL: ${OPENWRT_DOWNLOAD_URL}"
-    
-    # 创建容器目录
     mkdir -p "$CONTAINER_DIR"
-    # 使用 rurima 下载 OpenWRT rootfs
     ./rurima download "${OPENWRT_DOWNLOAD_URL}" "${CONTAINER_DIR}/rootfs.tar.gz"
     
     if [[ $? != 0 ]]; then
-        abort "- OpenWRT rootfs download failed! Please check network or URL."
+        abort "- OpenWRT rootfs download failed! Check network/URL."
     fi
 
-    # 解压 rootfs
     ui_print "- Extracting OpenWRT rootfs..."
     mkdir -p "${CONTAINER_DIR}/rootfs"
     tar -xf "${CONTAINER_DIR}/rootfs.tar.gz" -C "${CONTAINER_DIR}/rootfs"
     if [[ $? != 0 ]]; then
         abort "- OpenWRT rootfs extract failed!"
     fi
-    ui_print "- OpenWRT rootfs extract completed!"
 }
 
 automatic() {
-    ui_print "- A network connection is required to download the root filesystem. Please connect to WiFi before installation whenever possible"
+    ui_print "- Require network! Connect to WiFi if possible."
 
-    # ========== 新增 OpenWRT 分支判断 ==========
+    # 优先下载 OpenWRT
     if [ "${RURIMA_LXC_OS}" = "openwrt" ]; then
-        # 下载 OpenWRT rootfs（非 LXC 镜像）
         download_openwrt
     else
-        # 原版 LXC 镜像下载逻辑
-        ui_print "- Downloading the root filesystem using the source ${RURIMA_LXC_MIRROR}..."
+        # 原版 LXC 下载逻辑
+        ui_print "- Downloading from ${RURIMA_LXC_MIRROR}..."
         rurima lxc pull -n -m ${RURIMA_LXC_MIRROR} -o ${RURIMA_LXC_OS} -v ${RURIMA_LXC_OS_VERSION} -s "$CONTAINER_DIR"
         if [[ $? != 0 ]]; then
-            ui_print "- Download failed. Attempting to download the root filesystem using the fallback source ${RURIMA_LXC_MIRROR_FALLBACK}..."
+            ui_print "- Retry from fallback ${RURIMA_LXC_MIRROR_FALLBACK}..."
             rurima lxc pull -n -m ${RURIMA_LXC_MIRROR_FALLBACK} -o ${RURIMA_LXC_OS} -v ${RURIMA_LXC_OS_VERSION} -s "$CONTAINER_DIR"
         fi
     fi
 
-    ui_print "- Starting the chroot environment to perform automated installation..."
-    ui_print "- Please ensure the network environment is stable. The process may take some time, so please be patient!"
+    ui_print "- Starting chroot installation..."
+    ui_print "- Please wait, this may take a few minutes!"
     ui_print ""
     sleep 2
     getprop ro.product.model > "$CONTAINER_DIR/etc/hostname"
     mkdir -p "$CONTAINER_DIR/tmp" "$CONTAINER_DIR/usr/local/lib/servicectl/enabled"
     cp "$MODPATH/setup/setup.sh" "$CONTAINER_DIR/tmp/setup.sh"
     cp -r "$MODPATH/setup/servicectl"/* "$CONTAINER_DIR/usr/local/lib/servicectl/"
-    chmod 777 "$CONTAINER_DIR/tmp/setup.sh" "$CONTAINER_DIR/usr/local/lib/servicectl/servicectl" "$CONTAINER_DIR/usr/local/lib/servicectl/serviced"
+    chmod 777 "$CONTAINER_DIR/tmp/setup.sh" "$CONTAINER_DIR/usr/local/lib/servicectl/"*
 
     ruri "$CONTAINER_DIR" /bin/sh /tmp/setup.sh "$RURIMA_LXC_OS" "$PASSWORD" "$PORT"
     ruri -U "$CONTAINER_DIR"
 
-    ui_print "- Automated installation completed!"
-    ui_print "- Note: Please change the default password. Exposing an SSH port with password authentication instead of key-based authentication is always a high-risk behavior!"
+    ui_print "- Installation completed!"
+    ui_print "- WARNING: Change default password immediately! (passwd)"
 }
 
 main() {
@@ -171,9 +161,8 @@ main() {
 
 main
 
-# set_perm_recursive $MODPATH 0 0 0755 0644
 set_perm "$MODPATH/container_ctrl.sh" 0 0 0755
 
 ui_print ""
 (sleep 5 && reboot) &
-ui_print "The system will restart in 5 seconds..."
+ui_print "System will restart in 5 seconds..."
