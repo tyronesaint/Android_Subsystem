@@ -77,6 +77,7 @@ jobs:
             echo "asl-${os}-${version}.zip"
           }
 
+          # 原版发行版构建
           container_zip "archlinux" "current"
           container_zip "alpine" "edge"
           container_zip "centos" "9-Stream"
@@ -84,6 +85,12 @@ jobs:
           container_zip "fedora" "42"
           container_zip "kali" "current"
           container_zip "ubuntu" "oracular"
+          
+          # ========== 新增 OpenWRT 构建项 ==========
+          # 构建 OpenWRT 23.05.3 稳定版
+          container_zip "openwrt" "23.05.3"
+          # 可选：构建 OpenWRT 开发版（edge）
+          # container_zip "openwrt" "edge"
 
       - name: Release
         uses: softprops/action-gh-release@v2
@@ -92,6 +99,7 @@ jobs:
           name: ${{ env.release_name }}
           body: |
             You can only install one of these modules.
+            - OpenWRT 23.05.3 (armsr/armv8) is supported now!
           prerelease: false
           files: |
             ${{ github.workspace }}/../asl-*.zip
